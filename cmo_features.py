@@ -57,6 +57,22 @@ def find_entropy_threshold(img_gray, ranges):
     # return a value in the original range
     return ranges[k]
 
+def entropy_features(img_gray):
+    ERODE_KERN = 3
+    # Test 24 thresholds using entropy thresholding
+    ranges = np.arange(100, 240, 10)
+    thresh = find_entropy_threshold(img_gray, ranges)
+    print thresh
+    _, res = cv2.threshold(img_gray, thresh, 255, cv2.THRESH_BINARY)
+
+    # final opening to remove eventual micro features
+    kern = np.ones((ERODE_KERN, ERODE_KERN))
+    #res = cv2.morphologyEx(res, cv2.MORPH_OPEN, kern)
+    #res = cv2.erode(res, kern)
+    #res = cv2.dilate(res, kern)
+    return res
+
+
 def cmo(src, opened, closed):
     # * sign preserving cmo
     #   white features > 0, dark features < 0 (maxima)
@@ -87,14 +103,7 @@ def full_cmo(img_gray, object_size, min=True):
         res = np.maximum(cmo_horiz, cmo_vert)
     return res
 
-def print_out_cmo(cmo_img, name=""):
-    print np.mean(cmo_img)
-    cmo_img[cmo_img < 0] = 0
-    # normalization
-    cmo_img = (cmo_img - cmo_img.min()) / (cmo_img.max() - cmo_img.min()) * 255
-    cv2.imwrite(name, np.uint8(cmo_img))
-
-def extract_features(img_gray, thresh, object_size=7, cmo_min=True):
+def cmo_features(img_gray, thresh, object_size=7, cmo_min=True):
     ''' object_size is the kernel size for cmo
     Note : doesn't work too well if the object_size is too big
     '''
@@ -113,12 +122,12 @@ def extract_features(img_gray, thresh, object_size=7, cmo_min=True):
 
     # compute full cmo on horiz and vert 1D slits
     cmo = full_cmo(img_gray, object_size, min=cmo_min)
-    # print_out_cmo(cmo, name="boats_cmo_step1.jpg")
+    #utils.visualize_cmo(cmo, name="boats_cmo_step1.jpg")
 
     # gaussian filter over the output, to smooth results
     cmo = cv2.GaussianBlur(cmo, (smooth_size, smooth_size),
                            THETA_SMOOTH)
-    # print_out_cmo(cmo, name="boats_cmo_step2.jpg")
+    #utils.visualize_cmo(cmo, name="boats_cmo_step2.jpg")
 
     # threshold
     ret, res = cv2.threshold(cmo, thresh, 255, cv2.THRESH_BINARY)
@@ -129,7 +138,7 @@ def extract_features(img_gray, thresh, object_size=7, cmo_min=True):
     # final opening to remove eventual micro features
     kern = np.ones((ERODE_KERN, ERODE_KERN))
     res = cv2.erode(res, kern)
-    # print_out_cmo(res, name="boats_cmo_step3.jpg")
+    #utils.visualize_cmo(res, name="boats_cmo_step3.jpg")
     res = cv2.dilate(res, kern, iterations=2)
     return res
 
@@ -152,14 +161,22 @@ def get_polys(img_thresh):
     return [ cv2.approxPolyDP(cnt, 2, True) for cnt in contours0 ]
 
 
-def draw_box(img_rgb, contours):
-    new_img = np.array(img_rgb)
+# in_poly is the region of interest
+def draw_box(vis, contours, in_poly):
+    ''' draw boxes over vis (destructive) '''
     for contour in contours:
-        x, y, w, h = cv2.boundingRect(contour)
-        # draw it over the img
-        cv2.rectangle(new_img, (x,y), (x+w,y+h), (0,255,0), 2)
-    return new_img
+        draw = True
+        for point in contour:
+            point = tuple(point[0])
+            if cv2.pointPolygonTest(in_poly, point, True) <= 0:
+                draw = False
+                break
 
+        # draw it over the img
+        if draw:
+            x, y, w, h = cv2.boundingRect(contour)
+            cv2.rectangle(vis, (x,y), (x+w,y+h), (0,255,0), 2)
+    return vis
 
 def main():
     filename = sys.argv[1]
@@ -170,27 +187,26 @@ def main():
     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # find and apply mask, to keep only the water
-    mask = find_coastline.get_water_mask(img_gray, img)
-    img_gray = find_coastline.apply_mask(img_gray, mask)
+    masks = find_coastline.get_water_mask(img_gray, img)
+    if len(masks) < 1:
+        print "No water"
+        return
 
-    # XXX (mtourne):
-    # mask doesn't work as intended, even when the coastline masked out
-    # (blacked out), cmo can still find features in the black portions
-    # implement something to make sure the bounding box is not over masked
-    # / partially masked area
+    vis = img.copy()
+    i = 0
+    for (mask, in_poly) in masks:
+        img_tmp = find_coastline.apply_mask(img_gray, mask)
+        cv2.imwrite('coast_masked_{}.jpg'.format(i), img_tmp)
 
-    # Test 24 thresholds using entropy thresholding
-    #ranges = np.arange(100, 240, 10)
-    #thresh = find_entropy_threshold(img_gray, ranges)
-    #_, res = cv2.threshold(img_gray, thresh, 255, cv2.THRESH_BINARY)
-    #res = process_threshed(res)
+        # CMO extraction
+        # 0.135 works well
+        res = cmo_features(img_tmp, 0.135, object_size=11, cmo_min=True)
+        polys = get_polys(res)
+        vis = draw_box(img, polys, in_poly)
+        i += 1
 
-    # 0.135 works well
-    res = extract_features(img_gray, 0.135, object_size=11, cmo_min=True)
-    polys = get_polys(res)
-    img = draw_box(img, polys)
+    cv2.imwrite('boats_boxes.jpg', vis)
 
-    cv2.imwrite('boats_boxes.jpg', img)
 
 if __name__ == "__main__":
     main()

@@ -5,6 +5,8 @@
 import cv2
 import numpy as np
 
+from numpy.lib.stride_tricks import as_strided
+
 def correct_gamma(img_rgb, gamma):
     inverse_gamma = 1.0 / gamma
 
@@ -20,7 +22,6 @@ def correct_gamma(img_rgb, gamma):
 def get_gradient(img_gray):
     # grad x (with sobel, could be with scharr)
     grad_x = cv2.Sobel(img_gray, -1, 1, 0)
-    print grad_x
     abs_grad_x = cv2.convertScaleAbs(grad_x)
 
     # grad y
@@ -92,10 +93,16 @@ def get_hist_curves(img_rgb, img_hsv=None, rgb_norm=None, mask=None, name=""):
         curve = hist_curve(rgb_norm, mask)
         cv2.imwrite('{}_rgbnorm.jpg'.format(name), curve)
 
-def visualise_edges(img, edges, name=""):
+def visualize_edges(img, edges, name=""):
     vis = img.copy()
     vis[edges != 0] = (0, 255, 0)
     cv2.imwrite("{}.jpg".format(name), vis)
+
+def visualize_cmo(cmo_img, name=""):
+    cmo_img[cmo_img < 0] = 0
+    # normalization
+    cmo_img = (cmo_img - cmo_img.min()) / (cmo_img.max() - cmo_img.min()) * 255
+    cv2.imwrite(name, np.uint8(cmo_img))
 
 def get_means_std(img_rgb, img_hsv=None, rgb_norm=None, mask=None):
     b=img_rgb[:,:,0]
@@ -138,3 +145,34 @@ def get_means_std(img_rgb, img_hsv=None, rgb_norm=None, mask=None):
         mean, std = cv2.meanStdDev(r_norm, mask=mask)
         print "Red chan Norm, mean: {}, std: {}".format(
             mean, std)
+
+def image_windows(A, xsize, ysize, xstep=1, ystep=1):
+    all_windows = as_strided(
+        A, ((A.shape[0] - xsize + 1) / xstep, (A.shape[1] - ysize + 1) / ystep, xsize, ysize),
+        (A.strides[0] * xstep, A.strides[1] * ystep, A.strides[0], A.strides[1]))
+    return all_windows
+
+# palette data from matplotlib/_cm.py
+_jet_data =   {'red':   ((0., 0, 0), (0.35, 0, 0), (0.66, 1, 1), (0.89,1, 1),
+                         (1, 0.5, 0.5)),
+               'green': ((0., 0, 0), (0.125,0, 0), (0.375,1, 1), (0.64,1, 1),
+                         (0.91,0,0), (1, 0, 0)),
+               'blue':  ((0., 0.5, 0.5), (0.11, 1, 1), (0.34, 1, 1), (0.65,0, 0),
+                         (1, 0, 0))}
+
+cmap_data = { 'jet' : _jet_data }
+
+def make_cmap(name, n=256):
+    data = cmap_data[name]
+    xs = np.linspace(0.0, 1.0, n)
+    channels = []
+    eps = 1e-6
+    for ch_name in ['blue', 'green', 'red']:
+        ch_data = data[ch_name]
+        xp, yp = [], []
+        for x, y1, y2 in ch_data:
+            xp += [x, x+eps]
+            yp += [y1, y2]
+        ch = np.interp(xs, xp, yp)
+        channels.append(ch)
+    return np.uint8(np.array(channels).T*255)
