@@ -104,13 +104,16 @@ def main():
         print "No water"
         return
 
-    vis = img.copy()
-    cv2.drawContours( vis, in_poly, -1, (0, 255, 0), 3 )
-    cv2.imwrite('coast_mask_poly.jpg', vis)
+    i = 0
+    for (mask, in_poly) in masks:
+        i += 1
+        vis = img.copy()
+        cv2.drawContours( vis, in_poly, -1, (0, 255, 0), 3 )
+        cv2.imwrite('coast_mask_poly_{}.jpg'.format(i), vis)
 
-    cv2.imwrite('coast_mask.jpg', mask)
-    res = apply_mask(img, mask)
-    cv2.imwrite('coast_mask_applied.jpg', res)
+        cv2.imwrite('coast_mask_{}.jpg'.format(i), mask)
+        res = apply_mask(img, mask)
+        cv2.imwrite('coast_mask_applied_{}.jpg'.format(i), res)
 
 
 if __name__ == "__main__":

@@ -195,6 +195,7 @@ def main():
     vis = img.copy()
     i = 0
     for (mask, in_poly) in masks:
+        i += 1
         img_tmp = find_coastline.apply_mask(img_gray, mask)
         cv2.imwrite('coast_masked_{}.jpg'.format(i), img_tmp)
 
@@ -203,7 +204,6 @@ def main():
         res = cmo_features(img_tmp, 0.135, object_size=11, cmo_min=True)
         polys = get_polys(res)
         vis = draw_box(img, polys, in_poly)
-        i += 1
 
     cv2.imwrite('boats_boxes.jpg', vis)
 

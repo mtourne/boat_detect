@@ -67,7 +67,7 @@ def test_texture(ref_hists, filename):
 def test_patch(ref_hists, img_patch):
     lbp_hist = get_lbp_hist(img_patch)
     score = get_max_similarity(ref_hists, lbp_hist)
-    # print("Best similarity: {}".format(score))
+    #print("Best similarity: {}".format(score))
     return score
 
 def main():
