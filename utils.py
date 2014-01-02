@@ -95,6 +95,7 @@ def get_hist_curves(img_rgb, img_hsv=None, rgb_norm=None, mask=None, name=""):
 
 def visualize_edges(img, edges, name=""):
     vis = img.copy()
+    vis = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
     vis[edges != 0] = (0, 255, 0)
     cv2.imwrite("{}.jpg".format(name), vis)
 

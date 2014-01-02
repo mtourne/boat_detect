@@ -181,13 +181,14 @@ def draw_box(vis, contours, in_poly):
 def main():
     filename = sys.argv[1]
     img = cv2.imread(filename)
+    img_orig = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # resize 5000 x 4000 images by something more manageable
-    img = cv2.resize(img, (0,0), fx=0.2, fy=0.2)
-    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img_gray = cv2.resize(img_orig, (0,0), fx=0.2, fy=0.2)
+
 
     # find and apply mask, to keep only the water
-    masks = find_coastline.get_water_mask(img_gray, img)
+    masks = find_coastline.get_water_mask(img_gray, img_orig)
     if len(masks) < 1:
         print "No water"
         return
@@ -203,7 +204,8 @@ def main():
         # 0.135 works well
         res = cmo_features(img_tmp, 0.135, object_size=11, cmo_min=True)
         polys = get_polys(res)
-        vis = draw_box(img, polys, in_poly)
+        vis = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2BGR)
+        vis = draw_box(vis, polys, in_poly)
 
     cv2.imwrite('boats_boxes.jpg', vis)
 
