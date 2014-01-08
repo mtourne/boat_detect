@@ -6,6 +6,7 @@ import sys
 import cv2
 import cv2.cv as cv
 import numpy as np
+import tempfile
 
 import find_coastline
 
@@ -18,6 +19,8 @@ D. Casasent and A. Ye, "Detection filters and algorithm fusion
 for ATR," Image Processing, IEEE Transactions on, vol. 6, pp. 114-125,
 1997.
 '''
+
+DEBUG = True
 
 # entropy threshold also does a good job at finding
 # interesting things in something that has very little entropy (like water)
@@ -152,13 +155,12 @@ def process_threshed(img):
     res = cv2.dilate(res, kern, iterations=2)
     return res
 
-def get_polys(img_thresh, in_mask_poly):
+def get_polys(img_thresh, in_mask_poly, all_polys):
     ''' find all the boxes of boats in the thresholded image, that are
     not outside of the mask ploygon shape '''
     copy = np.array(img_thresh)
     # mark contours of the blobs
     contours0, hierarchy = cv2.findContours(copy, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    poly_res = []
     for cnt in contours0:
         poly = cv2.approxPolyDP(cnt, 2, True)
         # test all the (4) points of the poly
@@ -167,73 +169,103 @@ def get_polys(img_thresh, in_mask_poly):
             if cv2.pointPolygonTest(in_mask_poly, point, True) <= 0:
                 break
         # none of the points where outside of the mask shape, add to the res list
-        poly_res.append(poly)
-    return poly_res
+        all_polys.append(poly)
+    return all_polys
 
-def draw_box(vis, contours):
+def draw_box(vis, polys):
     ''' draw boxes over vis (destructive) '''
-    for contour in contours:
-        x, y, w, h = cv2.boundingRect(contour)
+    for poly in polys:
+        x, y, w, h = cv2.boundingRect(poly)
         cv2.rectangle(vis, (x,y), (x+w,y+h), (0,255,0), 2)
     return vis
 
-def get_all_boats(filename):
+def get_all_boats(img_gray, img_gray_orig):
     ''' return a list of image patches with coordinates x,y,w,h in the original
     image
     The actual long, lat of the boat can then be interpolated from the coord of the uav'''
+    # find and apply mask, to keep only the water
+    masks = find_coastline.get_water_mask(img_gray, img_gray_orig)
+    if len(masks) < 1:
+        return []
+
+    if DEBUG:
+        i = 0
+        vis = img_gray.copy()
+        vis = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2BGR)
+
+    all_polys = []
+    for (mask, in_mask_poly) in masks:
+        img_tmp = find_coastline.apply_mask(img_gray, mask)
+        # CMO extraction
+        # 0.135 works well
+        res = cmo_features(img_tmp, 0.135, object_size=11, cmo_min=True)
+        get_polys(res, in_mask_poly, all_polys)
+
+        if DEBUG:
+            i += 1
+            # write one different coast_mask output per mask
+            cv2.imwrite('coast_masked_{}.jpg'.format(i), img_tmp)
+
+    if DEBUG:
+        # write all the boat boxes on the same output
+        vis = draw_box(vis, all_polys)
+        # write img containing boat boxes
+        cv2.imwrite('boats_boxes.jpg', vis)
+
+    return all_polys
+
+def get_boat_vignettes(img_orig, img_downsampled, polys):
+    ''' return the areas of the original image with boats in them
+    add some padding around it '''
+    PADDING = 5
+    x_resize, y_resize =  img_downsampled.shape
+    x_orig, y_orig, _ = img_orig.shape
+    x_coeff = np.divide(x_orig, x_resize)
+    y_coeff = np.divide(y_orig, y_resize)
+    res = []
+    for poly in polys:
+        x, y, w, h = cv2.boundingRect(poly)
+        if x > PADDING:
+            x1 = (x - PADDING) * x_coeff
+        else:
+            x1 = 0
+        if y > PADDING:
+            y1 = (y - PADDING) * y_coeff
+        else:
+            y1 = 0
+        if x + w + PADDING < x_resize:
+            x2 = (x + w + PADDING) * x_coeff
+        else:
+            x2 = x_orig - 1
+        if y + h + PADDING < y_resize:
+            y2 = (y + h + PADDING) * y_coeff
+        else:
+            y2 = y_orig - 1
+        # create a temporary file and write the jpeg vignette
+        img_patch = img_orig[y1:y2, x1:x2]
+        #img_patch = img_downsampled[y:y+h, x:x+w]
+        filename = tempfile.mkstemp(prefix='/tmp/boat_', suffix='.jpg')[1]
+        cv2.imwrite(filename, img_patch)
+        res.append({ 'coord' : (x1, x2, y1, y2), 'img_file': filename})
+    return res
+
+
+def process(filename):
     img = cv2.imread(filename)
     img_gray_orig = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # resize 5000 x 4000 images by something more manageable
-    img_gray = cv2.resize(img_orig, (0,0), fx=0.2, fy=0.2)
+    img_gray = cv2.resize(img_gray_orig, (0,0), fx=0.2, fy=0.2)
 
-    # find and apply mask, to keep only the water
-    masks = find_coastline.get_water_mask(img_gray, img_gray_orig)
-    if len(masks) < 1:
-        return None
-
-    vis = img.copy()
-    i = 0
-    for (mask, in_poly) in masks:
-        i += 1
-        img_tmp = find_coastline.apply_mask(img_gray, mask)
-
-        # CMO extraction
-        # 0.135 works well
-        res = cmo_features(img_tmp, 0.135, object_size=11, cmo_min=True)
-        polys = get_polys(res)
-
+    polys = get_all_boats(img_gray, img_gray_orig)
+    # extract boat vignettes from the original image
+    # from the image boxes found
+    return get_boat_vignettes(img, img_gray, polys)
 
 def main():
     filename = sys.argv[1]
-    img = cv2.imread(filename)
-    img_orig = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # resize 5000 x 4000 images by something more manageable
-    img_gray = cv2.resize(img_orig, (0,0), fx=0.2, fy=0.2)
-
-
-    # find and apply mask, to keep only the water
-    masks = find_coastline.get_water_mask(img_gray, img_orig)
-    if len(masks) < 1:
-        print "No water"
-        return
-
-    vis = img.copy()
-    i = 0
-    for (mask, mask_poly) in masks:
-        i += 1
-        img_tmp = find_coastline.apply_mask(img_gray, mask)
-        cv2.imwrite('coast_masked_{}.jpg'.format(i), img_tmp)
-
-        # CMO extraction
-        # 0.135 works well
-        res = cmo_features(img_tmp, 0.135, object_size=11, cmo_min=True)
-        polys = get_polys(res, mask_poly)
-        vis = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2BGR)
-        vis = draw_box(vis, polys)
-
-    cv2.imwrite('boats_boxes.jpg', vis)
+    output = process(filename)
+    print output
 
 
 if __name__ == "__main__":
