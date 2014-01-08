@@ -152,31 +152,57 @@ def process_threshed(img):
     res = cv2.dilate(res, kern, iterations=2)
     return res
 
-def get_polys(img_thresh):
+def get_polys(img_thresh, in_mask_poly):
+    ''' find all the boxes of boats in the thresholded image, that are
+    not outside of the mask ploygon shape '''
     copy = np.array(img_thresh)
     # mark contours of the blobs
     contours0, hierarchy = cv2.findContours(copy, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    # TODO (mtourne): filter out areas that are outside of a range
-    # return a list of contours
-    return [ cv2.approxPolyDP(cnt, 2, True) for cnt in contours0 ]
+    poly_res = []
+    for cnt in contours0:
+        poly = cv2.approxPolyDP(cnt, 2, True)
+        # test all the (4) points of the poly
+        for point in poly:
+            point = tuple(point[0])
+            if cv2.pointPolygonTest(in_mask_poly, point, True) <= 0:
+                break
+        # none of the points where outside of the mask shape, add to the res list
+        poly_res.append(poly)
+    return poly_res
 
-
-# in_poly is the region of interest
-def draw_box(vis, contours, in_poly):
+def draw_box(vis, contours):
     ''' draw boxes over vis (destructive) '''
     for contour in contours:
-        draw = True
-        for point in contour:
-            point = tuple(point[0])
-            if cv2.pointPolygonTest(in_poly, point, True) <= 0:
-                draw = False
-                break
-
-        # draw it over the img
-        if draw:
-            x, y, w, h = cv2.boundingRect(contour)
-            cv2.rectangle(vis, (x,y), (x+w,y+h), (0,255,0), 2)
+        x, y, w, h = cv2.boundingRect(contour)
+        cv2.rectangle(vis, (x,y), (x+w,y+h), (0,255,0), 2)
     return vis
+
+def get_all_boats(filename):
+    ''' return a list of image patches with coordinates x,y,w,h in the original
+    image
+    The actual long, lat of the boat can then be interpolated from the coord of the uav'''
+    img = cv2.imread(filename)
+    img_gray_orig = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # resize 5000 x 4000 images by something more manageable
+    img_gray = cv2.resize(img_orig, (0,0), fx=0.2, fy=0.2)
+
+    # find and apply mask, to keep only the water
+    masks = find_coastline.get_water_mask(img_gray, img_gray_orig)
+    if len(masks) < 1:
+        return None
+
+    vis = img.copy()
+    i = 0
+    for (mask, in_poly) in masks:
+        i += 1
+        img_tmp = find_coastline.apply_mask(img_gray, mask)
+
+        # CMO extraction
+        # 0.135 works well
+        res = cmo_features(img_tmp, 0.135, object_size=11, cmo_min=True)
+        polys = get_polys(res)
+
 
 def main():
     filename = sys.argv[1]
@@ -195,7 +221,7 @@ def main():
 
     vis = img.copy()
     i = 0
-    for (mask, in_poly) in masks:
+    for (mask, mask_poly) in masks:
         i += 1
         img_tmp = find_coastline.apply_mask(img_gray, mask)
         cv2.imwrite('coast_masked_{}.jpg'.format(i), img_tmp)
@@ -203,9 +229,9 @@ def main():
         # CMO extraction
         # 0.135 works well
         res = cmo_features(img_tmp, 0.135, object_size=11, cmo_min=True)
-        polys = get_polys(res)
+        polys = get_polys(res, mask_poly)
         vis = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2BGR)
-        vis = draw_box(vis, polys, in_poly)
+        vis = draw_box(vis, polys)
 
     cv2.imwrite('boats_boxes.jpg', vis)
 
