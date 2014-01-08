@@ -20,7 +20,7 @@ for ATR," Image Processing, IEEE Transactions on, vol. 6, pp. 114-125,
 1997.
 '''
 
-DEBUG = True
+DEBUG = False
 
 # entropy threshold also does a good job at finding
 # interesting things in something that has very little entropy (like water)
