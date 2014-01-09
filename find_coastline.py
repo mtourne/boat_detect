@@ -7,13 +7,17 @@ import cv2
 import cv2.cv as cv
 import numpy as np
 import pickle
+import os
 
 import utils
 import lbp
 
 DEBUG = False
 
-fd = open("texture/water_texture_hist.bin", 'rb')
+# open the file where water texture are pickled
+curdir = os.path.dirname(__file__)
+filename = os.path.join(curdir, "texture/water_texture_hist.bin")
+fd = open(filename, 'rb')
 WATER_LBP_HIST = pickle.load(fd)
 fd.close()
 
