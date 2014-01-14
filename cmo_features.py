@@ -6,9 +6,10 @@ import sys
 import cv2
 import cv2.cv as cv
 import numpy as np
-import tempfile
+import datetime
 
 import find_coastline
+import uuid
 
 '''cmo stands for close - open morphology operation
 the goal is to keep areas that are much whiter than the background
@@ -222,7 +223,8 @@ def get_boat_vignettes(img_orig, img_downsampled, polys):
     x_orig, y_orig, _ = img_orig.shape
     x_coeff = np.divide(x_orig, x_resize)
     y_coeff = np.divide(y_orig, y_resize)
-    res = []
+    vignettes = []
+    res = { 'resolution': (x_orig, y_orig), 'vignettes': vignettes }
     for poly in polys:
         x, y, w, h = cv2.boundingRect(poly)
         if x > PADDING:
@@ -243,10 +245,13 @@ def get_boat_vignettes(img_orig, img_downsampled, polys):
             y2 = y_orig - 1
         # create a temporary file and write the jpeg vignette
         img_patch = img_orig[y1:y2, x1:x2]
-        #img_patch = img_downsampled[y:y+h, x:x+w]
-        filename = tempfile.mkstemp(prefix='/tmp/boat_', suffix='.jpg')[1]
+        # img_patch from the dowsampled image :
+        # img_patch = img_downsampled[y:y+h, x:x+w]
+        timestamp = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
+        random_string = uuid.uuid4()
+        filename = '/tmp/boat_{}_{}.jpg'.format(timestamp, random_string)
         cv2.imwrite(filename, img_patch)
-        res.append({ 'coord' : (x1, x2, y1, y2), 'img_file': filename})
+        vignettes.append({ 'top_left' : (x1, y1), 'bottom_right' : (x2, y2), 'img_file': filename})
     return res
 
 
